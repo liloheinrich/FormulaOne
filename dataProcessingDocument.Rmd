@@ -1,0 +1,179 @@
+---
+title: "Data Processing Document"
+output:
+  github_document:
+    toc: yes
+  pdf_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(modelr)
+```
+
+```{r get datasets, include = FALSE}
+df_results <-  read_csv("data/results.csv")
+df_races <- read_csv("data/races.csv")
+df_laptimes <- read_csv("data/lap_times.csv")
+df_pitstops <-  read_csv("data/pit_stops.csv")
+df_drivers <- read_csv("data/drivers.csv")
+df_constructors <- read_csv("data/constructors.csv")
+df_status <- read_csv("data/status.csv")
+df_circuits = read_csv('data/circuits.csv')
+```
+
+## Tidy data and join additional information
+
+```{r driver tidying}
+# throw out extraneous/irrelevant columns
+df_results_trim <- 
+  df_results %>%
+  select(-c(time, position, positionText, points, grid, number)) %>%
+  select(-c(milliseconds, rank, fastestLap, fastestLapTime))
+
+# select which attributes to keep about each driver
+df_drivers_trim <-
+  df_drivers %>%
+  unite(driver_name, c(forename, surname), sep = " ") %>% # driver's full name
+  select(driverId, driver_name) #, driver_nationality=nationality)
+df_results_plusdrivers <- left_join(df_results_trim, df_drivers_trim, by = "driverId")
+
+# select which attributes to keep about each constructor
+df_constructors_trim <-
+  df_constructors %>%
+  select(constructorId, constructor_name=name) #, constructor_nationality=nationality)
+df_results_plusconstructors <- left_join(df_results_plusdrivers, df_constructors_trim, by = "constructorId")
+
+# select which attributes to keep about each race
+df_circuits_trim <-
+  df_races %>%
+  select(raceId, year, round, circuitId, race_name=name)
+df_results_plusraces <- left_join(df_results_plusconstructors, df_circuits_trim, by = "raceId")
+
+# get status from statusId
+df_results_plusstatus <- left_join(df_results_plusraces, df_status, by = "statusId")
+
+# select which attributes to keep about each circuit
+df_circuits_trim <-
+  df_circuits %>% 
+  select(circuitId, circuit_name=name) #, circuit_country=country) 
+df_results_pluscircuits <- left_join(df_results_plusstatus, df_circuits_trim, by = c("circuitId"))
+
+# turn all \\N into NAs
+df_clean <-
+  df_results_pluscircuits %>%
+  mutate_all(na_if, "\\N")
+df_clean
+```
+
+
+```{r}
+write.csv(df_clean,"processed_data/clean_f1.csv", row.names = FALSE)
+```
+
+## Filter on drivers that drove for multiple constructors (not used)
+
+``` {r drivers that drove for multiple constructors}
+df_multi_drivers <-
+  df_clean %>%
+  
+  # get one datapoint of each pair of driver and constructor
+  group_by(driver_name, constructor_name) %>%
+  filter(row_number() == 1) %>%
+  
+  # get how many constructors that each driver has driven for
+  group_by(driver_name) %>%
+  mutate(driver_numconstr = n()) %>%
+  
+  # keep drivers that drove for more than one constructor
+  filter(driver_numconstr > 1, row_number() == 1) %>%
+  select(driver_name) %>% 
+  arrange(driver_name)
+df_multi_drivers
+
+# get all of the races "multi drivers" drove
+df_results_multi_drivers <- inner_join(df_clean, df_multi_drivers, by = "driver_name")
+df_results_multi_drivers %>% 
+  arrange(driver_name)
+```
+
+## EDA on Laptimes
+
+```{r time tidying, include=FALSE}
+df_results %>% 
+  arrange(desc(raceId), driverId) %>% 
+  glimpse()
+
+df_laptimes %>%
+  arrange(desc(raceId), driverId) %>% 
+  glimpse()
+
+df_pitstops %>% 
+  glimpse()
+```
+
+```{r lap and laptimes visualization for specific race and racer}
+pits <- df_pitstops %>% 
+  filter(driverId == 1, raceId == 841) %>% 
+  pull(lap)
+
+df_laptimes %>% 
+  filter(driverId == 1, raceId == 841) %>% 
+  ggplot(aes(lap, milliseconds  / 1000 / 60)) + 
+  geom_vline(xintercept = pits, linetype = 2, color = "grey") +
+  geom_line() +
+  geom_point(color = "blue") + 
+  labs(
+    x = "Lap Number",
+    y = "Lap Time (Minutes)"
+  )
+```
+
+```{r lap number & laptimes for all racers in a given race}
+df_laptimes %>% 
+  filter(raceId == 841) %>% 
+  mutate(driverId = as.factor(driverId))%>% 
+  ggplot(aes(lap, milliseconds / 1000 / 60)) +
+  geom_line(aes(color = driverId)) + 
+  ylim(1.5, 2.5) + 
+  labs(
+    x = "Lap Number",
+    y = "Lap Time (Minutes)"
+  )
+```
+
+## Compute Average Lap Times
+
+```{r}
+df_avglaptime <-
+  df_laptimes %>% 
+  group_by(driverId, raceId) %>%
+  summarize(total_time = sum(milliseconds), avg_lap = total_time / n())
+df_avglaptime
+
+df_with_avglaptime <- left_join(df_clean, df_avglaptime, by = c("driverId", "raceId"))
+df_with_avglaptime <-
+  df_with_avglaptime %>% 
+  filter(!is.na(avg_lap))
+
+df_with_avglaptime <-
+  df_with_avglaptime %>% 
+  group_by(circuitId) %>%
+  mutate(circuit_avg_lap = mean(avg_lap), circuit_lap_sd = sd(avg_lap)) %>%
+  mutate(std_avg_lap = (avg_lap-circuit_avg_lap)/circuit_lap_sd)
+df_with_avglaptime
+```
+
+
+## Save final processed dataset
+
+```{r}
+write.csv(df_with_avglaptime,"processed_data/avglaptime.csv", row.names = FALSE)
+```
+
+
+```{r}
+write.csv(df_with_avglaptime,"processed_data/std_avg_laptime.csv", row.names = FALSE)
+```
