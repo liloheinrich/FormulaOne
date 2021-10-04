@@ -1,4 +1,6 @@
-# Data Science Team H Final Project
+# Formula One Data Science Final Project
+
+Team members: Lily Novak, Colin Takeda, Lilo Heinrich
 
 Exploratory Data Analysis on [Formula 1 World Championships (1950 - 2020)](https://www.kaggle.com/rohanrao/formula-1-world-championship-1950-2020)
 
