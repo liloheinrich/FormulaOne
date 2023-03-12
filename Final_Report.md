@@ -329,7 +329,7 @@ significant difference between the two.
 In comparison, driver and constructor has an R-squared value that tends
 to range from 33% to 41% and a MSE of 20 to 23. The driver and
 constructor fit tends to always be better than either the just driver or
-just constructor fit. Overall, the the range of values for the driver
+just constructor fit. Overall, the range of values for the driver
 and constructor fit is promising given the multitude of outside factors
 in racing that are not covered by the investigated factors.
 
